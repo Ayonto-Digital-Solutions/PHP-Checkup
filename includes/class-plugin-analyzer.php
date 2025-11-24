@@ -390,50 +390,13 @@ class AS_PHP_Checkup_Plugin_Analyzer {
 	}
 
 	/**
-	 * Safely read file with size limit
-	 *
-	 * @since 1.4.0
-	 * @param string $file_path File path to read.
-	 * @param int    $max_size  Maximum file size in bytes (default 1MB).
-	 * @return string|false File contents or false on failure.
-	 */
-	private function safe_read_file( string $file_path, int $max_size = 1048576 ) {
-		// Validate path
-		$real_path = realpath( $file_path );
-		if ( false === $real_path ) {
-			return false;
-		}
-
-		// Check if file is within plugin directory
-		if ( strpos( $real_path, WP_PLUGIN_DIR ) !== 0 ) {
-			return false;
-		}
-
-		// Check if file exists and is readable
-		if ( ! is_file( $real_path ) || ! is_readable( $real_path ) ) {
-			return false;
-		}
-
-		// Check file size
-		$file_size = filesize( $real_path );
-		if ( false === $file_size || $file_size > $max_size ) {
-			// File too large or error getting size
-			return false;
-		}
-
-		// Read file safely
-		return file_get_contents( $real_path );
-	}
-
-	/**
 	 * Extract requirements from plugin
 	 *
 	 * @since 1.1.0
-	 * @version 1.4.0 - Added safe file reading with size limits
 	 * @param string $plugin Plugin file path.
 	 * @return array
 	 */
-	private function extract_requirements( string $plugin ): array {
+	private function extract_requirements( $plugin ) {
 		// First check if we have known requirements
 		if ( isset( $this->known_requirements[ $plugin ] ) ) {
 			return $this->known_requirements[ $plugin ];
@@ -453,23 +416,23 @@ class AS_PHP_Checkup_Plugin_Analyzer {
 		);
 
 		foreach ( $readme_files as $readme_file ) {
-			$readme_content = $this->safe_read_file( $readme_file, 524288 ); // 512KB limit for readme
-			if ( false !== $readme_content ) {
+			if ( file_exists( $readme_file ) ) {
+				$readme_content = file_get_contents( $readme_file );
 				$requirements = array_merge( $requirements, $this->parse_readme_requirements( $readme_content ) );
 				break;
 			}
 		}
 
 		// Check plugin main file for ini_set calls or defined requirements
-		$plugin_content = $this->safe_read_file( $plugin_file, 1048576 ); // 1MB limit for plugin file
-		if ( false !== $plugin_content ) {
+		if ( file_exists( $plugin_file ) ) {
+			$plugin_content = file_get_contents( $plugin_file );
 			$requirements = array_merge( $requirements, $this->parse_plugin_requirements( $plugin_content ) );
 		}
 
 		// Check for composer.json
 		$composer_file = $plugin_dir . '/composer.json';
-		$composer_content = $this->safe_read_file( $composer_file, 102400 ); // 100KB limit for composer.json
-		if ( false !== $composer_content ) {
+		if ( file_exists( $composer_file ) ) {
+			$composer_content = file_get_contents( $composer_file );
 			$requirements = array_merge( $requirements, $this->parse_composer_requirements( $composer_content ) );
 		}
 
