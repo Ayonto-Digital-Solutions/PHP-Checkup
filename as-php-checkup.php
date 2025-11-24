@@ -127,7 +127,10 @@ function as_php_checkup_includes() {
 	
 	// Cache Manager - New in 1.3.0
 	require_once AS_PHP_CHECKUP_PLUGIN_DIR . 'includes/class-cache-manager.php';
-	
+
+	// Check Configuration - New in 1.4.0
+	require_once AS_PHP_CHECKUP_PLUGIN_DIR . 'includes/class-check-config.php';
+
 	// Core classes
 	require_once AS_PHP_CHECKUP_PLUGIN_DIR . 'includes/class-checkup.php';
 	require_once AS_PHP_CHECKUP_PLUGIN_DIR . 'includes/class-plugin-analyzer.php';

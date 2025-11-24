@@ -58,11 +58,17 @@
 			// Tools
 			$(document).on('click', '.run-scheduled-task', this.runScheduledTask.bind(this));
 			$(document).on('click', '.view-phpinfo', this.viewPhpInfo.bind(this));
-			
+
+			// Check configuration settings - New in 1.4.0
+			$(document).on('change', 'input[name="check_profile"]', this.handleProfileChange.bind(this));
+			$(document).on('change', '.check-toggle-input', this.handleCheckToggle.bind(this));
+			$(document).on('click', '.save-check-config', this.saveCheckConfiguration.bind(this));
+			$(document).on('click', '.reset-to-defaults', this.resetToDefaults.bind(this));
+
 			// Solution modal
 			$(document).on('click', '#solution-modal .close', this.closeSolutionModal.bind(this));
 			$(document).on('click', '#solution-modal', this.handleModalBackgroundClick.bind(this));
-			
+
 			// ESC key to close modals
 			$(document).on('keyup', this.handleEscKey.bind(this));
 		},
@@ -781,26 +787,178 @@
 		showNotice: function(message, type) {
 			var noticeClass = 'notice notice-' + (type || 'info') + ' is-dismissible';
 			var $notice = $('<div class="' + noticeClass + '"><p>' + message + '</p><button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss</span></button></div>');
-			
+
 			// Remove existing notices
 			$('.as-php-checkup-wrap .notice').remove();
-			
+
 			// Insert after page title
 			$('.as-php-checkup-wrap h1').after($notice);
-			
+
 			// Auto-hide after 5 seconds
 			setTimeout(function() {
 				$notice.fadeOut(function() {
 					$(this).remove();
 				});
 			}, 5000);
-			
+
 			// Make dismissible
 			$notice.on('click', '.notice-dismiss', function() {
 				$notice.fadeOut(function() {
 					$(this).remove();
 				});
 			});
+		},
+
+		/**
+		 * Handle profile change
+		 *
+		 * @since 1.4.0
+		 */
+		handleProfileChange: function(e) {
+			var $radio = $(e.currentTarget);
+			var profileName = $radio.val();
+
+			// Update UI to show selected profile
+			$('.profile-option').removeClass('selected');
+			$radio.closest('.profile-option').addClass('selected');
+
+			// Load profile configuration via AJAX
+			$.ajax({
+				url: asPhpCheckup.ajaxurl,
+				type: 'POST',
+				data: {
+					action: 'as_php_checkup_load_profile',
+					nonce: asPhpCheckup.nonce,
+					profile: profileName
+				},
+				success: function(response) {
+					if (response.success && response.data) {
+						// Update checkboxes based on profile
+						var enabledChecks = response.data.enabled_checks || [];
+
+						$('.check-toggle-input').each(function() {
+							var $checkbox = $(this);
+							var checkKey = $checkbox.data('check');
+							var shouldBeEnabled = enabledChecks.indexOf(checkKey) !== -1;
+							$checkbox.prop('checked', shouldBeEnabled);
+						});
+
+						ASPhpCheckupAdmin.showNotice('Profile "' + profileName + '" loaded. Click Save to apply changes.', 'info');
+					} else {
+						ASPhpCheckupAdmin.showNotice('Error loading profile', 'error');
+					}
+				},
+				error: function() {
+					ASPhpCheckupAdmin.showNotice('Error loading profile', 'error');
+				}
+			});
+		},
+
+		/**
+		 * Handle individual check toggle
+		 *
+		 * @since 1.4.0
+		 */
+		handleCheckToggle: function(e) {
+			// Mark profile as custom when individual checks are modified
+			var $customRadio = $('input[name="check_profile"][value="custom"]');
+			if ($customRadio.length && !$customRadio.is(':checked')) {
+				$customRadio.prop('disabled', false).prop('checked', true);
+				$('.profile-option').removeClass('selected');
+				$customRadio.closest('.profile-option').addClass('selected');
+			}
+		},
+
+		/**
+		 * Save check configuration
+		 *
+		 * @since 1.4.0
+		 */
+		saveCheckConfiguration: function(e) {
+			e.preventDefault();
+
+			var $button = $(e.currentTarget);
+			var originalHtml = $button.html();
+
+			// Get selected profile
+			var profile = $('input[name="check_profile"]:checked').val();
+
+			// Get enabled checks
+			var enabledChecks = [];
+			$('.check-toggle-input:checked').each(function() {
+				enabledChecks.push($(this).val());
+			});
+
+			// Also include all critical checks (mandatory)
+			$('.check-row.severity-critical').each(function() {
+				var checkKey = $(this).find('.check-name strong').text().replace(/\./g, '_');
+				if (enabledChecks.indexOf(checkKey) === -1) {
+					// Critical checks are always enabled
+					var $input = $(this).find('.check-toggle-input');
+					if ($input.length) {
+						enabledChecks.push($input.val());
+					}
+				}
+			});
+
+			$button.prop('disabled', true)
+				.html('<span class="dashicons dashicons-update spinning"></span> Saving...');
+
+			$.ajax({
+				url: asPhpCheckup.ajaxurl,
+				type: 'POST',
+				data: {
+					action: 'as_php_checkup_save_config',
+					nonce: asPhpCheckup.nonce,
+					profile: profile,
+					enabled_checks: enabledChecks
+				},
+				success: function(response) {
+					if (response.success) {
+						ASPhpCheckupAdmin.showNotice('Configuration saved successfully!', 'success');
+						$('.save-status').html('<span class="dashicons dashicons-yes-alt" style="color: #46b450;"></span> Saved');
+
+						// Clear cache and refresh checks
+						setTimeout(function() {
+							location.reload();
+						}, 1500);
+					} else {
+						ASPhpCheckupAdmin.showNotice(response.data.message || 'Error saving configuration', 'error');
+						$button.prop('disabled', false).html(originalHtml);
+					}
+				},
+				error: function() {
+					ASPhpCheckupAdmin.showNotice('Error saving configuration', 'error');
+					$button.prop('disabled', false).html(originalHtml);
+				}
+			});
+		},
+
+		/**
+		 * Reset to defaults
+		 *
+		 * @since 1.4.0
+		 */
+		resetToDefaults: function(e) {
+			e.preventDefault();
+
+			if (!confirm('Are you sure you want to reset to default configuration? This will set the profile to "Balanced" and enable all recommended checks.')) {
+				return;
+			}
+
+			var $button = $(e.currentTarget);
+			var originalHtml = $button.html();
+
+			$button.prop('disabled', true)
+				.html('<span class="dashicons dashicons-update spinning"></span> Resetting...');
+
+			// Load balanced profile
+			$('input[name="check_profile"][value="balanced"]').prop('checked', true).trigger('change');
+
+			setTimeout(function() {
+				// Trigger save after profile loads
+				$('.save-check-config').trigger('click');
+			}, 1000);
 		}
 	};
 

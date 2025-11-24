@@ -528,9 +528,12 @@ class AS_PHP_Checkup {
 		// Reload plugin requirements to get latest
 		$this->load_plugin_requirements();
 		
+		// Get check configuration - New in 1.4.0
+		$check_config = AS_PHP_Checkup_Check_Config::get_instance();
+
 		$current_settings = $this->get_current_settings();
 		$results = array();
-		
+
 		foreach ( $this->recommended_settings as $category => $settings ) {
 			$results[ $category ] = array(
 				'label'  => $this->get_category_label( $category ),
@@ -539,8 +542,13 @@ class AS_PHP_Checkup {
 				'warnings' => 0,
 				'failed' => 0,
 			);
-			
+
 			foreach ( $settings as $key => $config ) {
+				// Check if this check is enabled - New in 1.4.0
+				if ( ! $check_config->is_check_enabled( $key ) ) {
+					continue; // Skip disabled checks
+				}
+
 				$current_value = isset( $current_settings[ $key ] ) ? $current_settings[ $key ] : '';
 				$status = $this->check_value(
 					$current_value,
@@ -548,7 +556,7 @@ class AS_PHP_Checkup {
 					$config['minimum'],
 					$config['type']
 				);
-				
+
 				// Update status counts
 				if ( 'ok' === $status ) {
 					$results[ $category ]['passed']++;
@@ -557,29 +565,33 @@ class AS_PHP_Checkup {
 				} elseif ( 'error' === $status ) {
 					$results[ $category ]['failed']++;
 				}
-				
+
 				// Add source information if from plugin
 				$source = '';
 				if ( isset( $this->plugin_requirements['sources'][ $key ] ) ) {
 					$source = implode( ', ', $this->plugin_requirements['sources'][ $key ] );
 				}
-				
+
+				// Get check severity - New in 1.4.0
+				$severity = $check_config->get_check_severity( $key );
+				$can_disable = $check_config->can_disable_check( $key );
+
 				// Prepare message based on status
 				$message = '';
 				if ( 'warning' === $status || 'error' === $status ) {
 					if ( 'integer_inverse' === $config['type'] ) {
-						$message = sprintf( 
-							__( 'Should be %s or lower', 'as-php-checkup' ), 
-							$config['recommended'] 
+						$message = sprintf(
+							__( 'Should be %s or lower', 'as-php-checkup' ),
+							$config['recommended']
 						);
 					} else {
-						$message = sprintf( 
-							__( 'Should be at least %s', 'as-php-checkup' ), 
-							$config['minimum'] 
+						$message = sprintf(
+							__( 'Should be at least %s', 'as-php-checkup' ),
+							$config['minimum']
 						);
 					}
 				}
-				
+
 				$results[ $category ]['items'][ $key ] = array(
 					'setting'     => $key,
 					'label'       => $config['label'],
@@ -591,6 +603,8 @@ class AS_PHP_Checkup {
 					'type'        => $config['type'],
 					'source'      => $source,
 					'message'     => $message,
+					'severity'    => $severity,      // New in 1.4.0
+					'can_disable' => $can_disable,   // New in 1.4.0
 				);
 			}
 		}

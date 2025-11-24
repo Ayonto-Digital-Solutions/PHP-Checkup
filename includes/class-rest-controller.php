@@ -153,6 +153,60 @@ class AS_PHP_Checkup_REST_Controller {
 				),
 			)
 		);
+
+		// Check configuration endpoint - New in 1.4.0
+		register_rest_route(
+			$this->namespace,
+			'/check-config',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_check_config' ),
+					'permission_callback' => array( $this, 'check_read_permission' ),
+					'args'                => array(),
+				),
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'update_check_config' ),
+					'permission_callback' => array( $this, 'check_write_permission' ),
+					'args'                => array(
+						'config' => array(
+							'description'       => __( 'Check configuration', 'as-php-checkup' ),
+							'type'              => 'object',
+							'required'          => true,
+							'validate_callback' => 'rest_validate_request_arg',
+						),
+						'profile' => array(
+							'description'       => __( 'Profile name', 'as-php-checkup' ),
+							'type'              => 'string',
+							'default'           => 'custom',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		// Load profile endpoint - New in 1.4.0
+		register_rest_route(
+			$this->namespace,
+			'/check-config/profile/(?P<profile>[a-zA-Z_]+)',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'load_profile' ),
+					'permission_callback' => array( $this, 'check_write_permission' ),
+					'args'                => array(
+						'profile' => array(
+							'description'       => __( 'Profile name', 'as-php-checkup' ),
+							'type'              => 'string',
+							'required'          => true,
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
 	}
 
 	/**
@@ -602,6 +656,128 @@ class AS_PHP_Checkup_REST_Controller {
 					'type' => 'integer',
 				),
 			),
+		);
+	}
+
+	/**
+	 * Get check configuration
+	 *
+	 * @since 1.4.0
+	 * @param WP_REST_Request $request Request object.
+	 * @return WP_REST_Response
+	 */
+	public function get_check_config( $request ): WP_REST_Response {
+		$check_config = AS_PHP_Checkup_Check_Config::get_instance();
+
+		$response_data = array(
+			'success'       => true,
+			'configuration' => $check_config->get_current_configuration(),
+			'profile'       => $check_config->get_current_profile(),
+			'profiles'      => $check_config->get_profiles(),
+			'checks_grouped'=> $check_config->get_checks_grouped(),
+			'statistics'    => $check_config->get_config_statistics(),
+		);
+
+		return new WP_REST_Response( $response_data, 200 );
+	}
+
+	/**
+	 * Update check configuration
+	 *
+	 * @since 1.4.0
+	 * @param WP_REST_Request $request Request object.
+	 * @return WP_REST_Response
+	 */
+	public function update_check_config( $request ): WP_REST_Response {
+		$config = $request->get_param( 'config' );
+		$profile = $request->get_param( 'profile' );
+
+		// Validate config is an array
+		if ( ! is_array( $config ) ) {
+			return new WP_REST_Response(
+				array(
+					'success' => false,
+					'message' => __( 'Configuration must be an array', 'as-php-checkup' ),
+				),
+				400
+			);
+		}
+
+		$check_config = AS_PHP_Checkup_Check_Config::get_instance();
+
+		// Save configuration
+		$result = $check_config->save_configuration( $config, $profile );
+
+		if ( $result ) {
+			// Clear cache after configuration change
+			$cache_manager = AS_PHP_Checkup_Cache_Manager::get_instance();
+			$cache_manager->delete( 'check_results' );
+
+			$response_data = array(
+				'success'       => true,
+				'message'       => __( 'Configuration saved successfully', 'as-php-checkup' ),
+				'configuration' => $check_config->get_current_configuration(),
+				'profile'       => $check_config->get_current_profile(),
+				'statistics'    => $check_config->get_config_statistics(),
+			);
+
+			return new WP_REST_Response( $response_data, 200 );
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success' => false,
+				'message' => __( 'Failed to save configuration', 'as-php-checkup' ),
+			),
+			500
+		);
+	}
+
+	/**
+	 * Load profile
+	 *
+	 * @since 1.4.0
+	 * @param WP_REST_Request $request Request object.
+	 * @return WP_REST_Response
+	 */
+	public function load_profile( $request ): WP_REST_Response {
+		$profile = $request->get_param( 'profile' );
+
+		$check_config = AS_PHP_Checkup_Check_Config::get_instance();
+
+		// Load profile
+		$result = $check_config->load_profile( $profile );
+
+		if ( $result ) {
+			// Clear cache after profile change
+			$cache_manager = AS_PHP_Checkup_Cache_Manager::get_instance();
+			$cache_manager->delete( 'check_results' );
+
+			$response_data = array(
+				'success'       => true,
+				'message'       => sprintf(
+					/* translators: %s: profile name */
+					__( 'Profile "%s" loaded successfully', 'as-php-checkup' ),
+					$profile
+				),
+				'configuration' => $check_config->get_current_configuration(),
+				'profile'       => $check_config->get_current_profile(),
+				'statistics'    => $check_config->get_config_statistics(),
+			);
+
+			return new WP_REST_Response( $response_data, 200 );
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success' => false,
+				'message' => sprintf(
+					/* translators: %s: profile name */
+					__( 'Profile "%s" not found', 'as-php-checkup' ),
+					$profile
+				),
+			),
+			404
 		);
 	}
 }

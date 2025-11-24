@@ -38,6 +38,8 @@ class AS_PHP_Checkup_Admin {
 		add_action( 'wp_ajax_as_php_checkup_refresh', array( $this, 'ajax_refresh_check' ) );
 		add_action( 'wp_ajax_as_php_checkup_export', array( $this, 'ajax_export_report' ) );
 		add_action( 'wp_ajax_as_php_checkup_analyze_plugins', array( $this, 'ajax_analyze_plugins' ) );
+		add_action( 'wp_ajax_as_php_checkup_load_profile', array( $this, 'ajax_load_profile' ) );
+		add_action( 'wp_ajax_as_php_checkup_save_config', array( $this, 'ajax_save_config' ) );
 	}
 
 	/**
@@ -636,7 +638,11 @@ class AS_PHP_Checkup_Admin {
 					</div>
 				</div>
 			</div>
-			
+
+			<div class="tab-content" id="tab-settings" style="display:none;">
+				<?php $this->render_check_settings(); ?>
+			</div>
+
 			<div class="tab-content" id="tab-tools" style="display:none;">
 				<h2><?php esc_html_e( 'Tools & Utilities', 'as-php-checkup' ); ?></h2>
 				
@@ -746,6 +752,7 @@ wp as-php-checkup apply-solution --type=user_ini
 			'system'    => __( 'System Info', 'as-php-checkup' ),
 			'plugins'   => __( 'Plugin Analysis', 'as-php-checkup' ),
 			'solutions' => __( 'Solutions', 'as-php-checkup' ),
+			'settings'  => __( 'Check Settings', 'as-php-checkup' ),
 			'tools'     => __( 'Tools', 'as-php-checkup' ),
 		);
 		
@@ -1106,7 +1113,294 @@ wp as-php-checkup apply-solution --type=user_ini
 		}
 		
 		$html .= '</body></html>';
-		
+
 		return $html;
+	}
+
+	/**
+	 * Render check settings tab
+	 *
+	 * @since 1.4.0
+	 * @return void
+	 */
+	private function render_check_settings() {
+		$check_config = AS_PHP_Checkup_Check_Config::get_instance();
+		$current_profile = get_option( 'as_php_checkup_config_profile', 'balanced' );
+		$profiles = $check_config->get_available_profiles();
+		$checks_grouped = $check_config->get_checks_grouped();
+		$enabled_config = get_option( 'as_php_checkup_enabled_checks', array() );
+
+		// Calculate statistics
+		$total_checks = 0;
+		$enabled_checks = 0;
+		$critical_checks = 0;
+		foreach ( $checks_grouped as $category_checks ) {
+			foreach ( $category_checks as $check_key => $check_data ) {
+				$total_checks++;
+				if ( 'critical' === $check_data['severity'] ) {
+					$critical_checks++;
+					$enabled_checks++;
+				} elseif ( $check_config->is_check_enabled( $check_key ) ) {
+					$enabled_checks++;
+				}
+			}
+		}
+
+		?>
+		<h2><?php esc_html_e( 'Check Configuration Settings', 'as-php-checkup' ); ?></h2>
+		<p class="description">
+			<?php esc_html_e( 'Configure which checks are enabled or disabled. Security checks cannot be disabled.', 'as-php-checkup' ); ?>
+		</p>
+
+		<!-- Configuration Overview -->
+		<div class="config-overview">
+			<div class="overview-cards">
+				<div class="overview-card">
+					<h3><?php esc_html_e( 'Active Profile', 'as-php-checkup' ); ?></h3>
+					<div class="profile-name"><?php echo esc_html( $profiles[ $current_profile ]['name'] ); ?></div>
+					<p><?php echo esc_html( $profiles[ $current_profile ]['description'] ); ?></p>
+				</div>
+
+				<div class="overview-card">
+					<h3><?php esc_html_e( 'Checks Status', 'as-php-checkup' ); ?></h3>
+					<div class="checks-stats">
+						<div class="stat">
+							<span class="stat-number"><?php echo esc_html( $enabled_checks ); ?></span> /
+							<span class="stat-total"><?php echo esc_html( $total_checks ); ?></span>
+							<span class="stat-label"><?php esc_html_e( 'Enabled', 'as-php-checkup' ); ?></span>
+						</div>
+						<div class="stat">
+							<span class="stat-number critical-count"><?php echo esc_html( $critical_checks ); ?></span>
+							<span class="stat-label"><?php esc_html_e( 'Security (Mandatory)', 'as-php-checkup' ); ?></span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Profile Selector -->
+		<div class="profile-selector-section">
+			<h3><?php esc_html_e( 'Configuration Profiles', 'as-php-checkup' ); ?></h3>
+			<p class="description">
+				<?php esc_html_e( 'Quick presets for different security and performance needs.', 'as-php-checkup' ); ?>
+			</p>
+
+			<div class="profile-options">
+				<?php foreach ( $profiles as $profile_key => $profile_data ) : ?>
+					<label class="profile-option <?php echo $current_profile === $profile_key ? 'selected' : ''; ?>">
+						<input type="radio"
+							   name="check_profile"
+							   value="<?php echo esc_attr( $profile_key ); ?>"
+							   <?php checked( $current_profile, $profile_key ); ?>
+							   <?php echo 'custom' === $profile_key && 'custom' !== $current_profile ? 'disabled' : ''; ?>>
+						<div class="profile-content">
+							<h4><?php echo esc_html( $profile_data['name'] ); ?></h4>
+							<p><?php echo esc_html( $profile_data['description'] ); ?></p>
+						</div>
+					</label>
+				<?php endforeach; ?>
+			</div>
+		</div>
+
+		<!-- Individual Check Configuration -->
+		<div class="checks-configuration-section">
+			<h3>
+				<?php esc_html_e( 'Individual Check Configuration', 'as-php-checkup' ); ?>
+				<small><?php esc_html_e( '(Modifying individual checks will switch to Custom profile)', 'as-php-checkup' ); ?></small>
+			</h3>
+
+			<div class="checks-list">
+				<?php foreach ( $checks_grouped as $category => $category_checks ) : ?>
+					<div class="check-category">
+						<h4 class="category-title"><?php echo esc_html( ucfirst( str_replace( '_', ' ', $category ) ) ); ?></h4>
+
+						<table class="wp-list-table widefat fixed striped check-config-table">
+							<thead>
+								<tr>
+									<th class="check-name"><?php esc_html_e( 'Check', 'as-php-checkup' ); ?></th>
+									<th class="check-severity"><?php esc_html_e( 'Severity', 'as-php-checkup' ); ?></th>
+									<th class="check-reason"><?php esc_html_e( 'Reason', 'as-php-checkup' ); ?></th>
+									<th class="check-toggle"><?php esc_html_e( 'Enabled', 'as-php-checkup' ); ?></th>
+								</tr>
+							</thead>
+							<tbody>
+								<?php foreach ( $category_checks as $check_key => $check_data ) : ?>
+									<?php
+									$is_critical = 'critical' === $check_data['severity'];
+									$is_enabled = $check_config->is_check_enabled( $check_key );
+									$can_disable = $check_data['disableable'];
+									?>
+									<tr class="check-row severity-<?php echo esc_attr( $check_data['severity'] ); ?>">
+										<td class="check-name">
+											<strong><?php echo esc_html( str_replace( '_', '.', $check_key ) ); ?></strong>
+											<?php if ( ! $can_disable ) : ?>
+												<span class="dashicons dashicons-lock" title="<?php esc_attr_e( 'Security check - Cannot be disabled', 'as-php-checkup' ); ?>"></span>
+											<?php endif; ?>
+										</td>
+										<td class="check-severity">
+											<span class="severity-badge severity-<?php echo esc_attr( $check_data['severity'] ); ?>">
+												<?php echo esc_html( ucfirst( $check_data['severity'] ) ); ?>
+											</span>
+										</td>
+										<td class="check-reason">
+											<small><?php echo esc_html( $check_data['reason'] ); ?></small>
+										</td>
+										<td class="check-toggle">
+											<?php if ( $can_disable ) : ?>
+												<label class="toggle-switch">
+													<input type="checkbox"
+														   name="checks_enabled[]"
+														   value="<?php echo esc_attr( $check_key ); ?>"
+														   <?php checked( $is_enabled ); ?>
+														   class="check-toggle-input"
+														   data-check="<?php echo esc_attr( $check_key ); ?>">
+													<span class="toggle-slider"></span>
+												</label>
+											<?php else : ?>
+												<span class="check-mandatory">
+													<span class="dashicons dashicons-yes-alt"></span>
+													<?php esc_html_e( 'Mandatory', 'as-php-checkup' ); ?>
+												</span>
+											<?php endif; ?>
+										</td>
+									</tr>
+								<?php endforeach; ?>
+							</tbody>
+						</table>
+					</div>
+				<?php endforeach; ?>
+			</div>
+		</div>
+
+		<!-- Save Actions -->
+		<div class="config-actions">
+			<button type="button" class="button button-primary button-large save-check-config">
+				<span class="dashicons dashicons-saved"></span>
+				<?php esc_html_e( 'Save Configuration', 'as-php-checkup' ); ?>
+			</button>
+			<button type="button" class="button button-secondary reset-to-defaults">
+				<span class="dashicons dashicons-undo"></span>
+				<?php esc_html_e( 'Reset to Defaults', 'as-php-checkup' ); ?>
+			</button>
+			<span class="save-status"></span>
+		</div>
+
+		<div class="config-help">
+			<h4><?php esc_html_e( 'Configuration Help', 'as-php-checkup' ); ?></h4>
+			<dl>
+				<dt><strong><?php esc_html_e( 'Critical (Security)', 'as-php-checkup' ); ?>:</strong></dt>
+				<dd><?php esc_html_e( 'Security-related checks that cannot be disabled. These protect your site from vulnerabilities.', 'as-php-checkup' ); ?></dd>
+
+				<dt><strong><?php esc_html_e( 'Recommended', 'as-php-checkup' ); ?>:</strong></dt>
+				<dd><?php esc_html_e( 'Important checks for stability and best practices. Can be disabled if needed for specific hosting environments.', 'as-php-checkup' ); ?></dd>
+
+				<dt><strong><?php esc_html_e( 'Optional', 'as-php-checkup' ); ?>:</strong></dt>
+				<dd><?php esc_html_e( 'Performance optimization checks like OPcache. These are helpful but not required.', 'as-php-checkup' ); ?></dd>
+			</dl>
+		</div>
+		<?php
+	}
+
+	/**
+	 * AJAX handler for loading profile configuration
+	 *
+	 * @since 1.4.0
+	 * @return void
+	 */
+	public function ajax_load_profile() {
+		// Security check
+		if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['nonce'] ) ), 'as_php_checkup_nonce' ) ) {
+			wp_die( esc_html__( 'Security check failed', 'as-php-checkup' ) );
+		}
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Insufficient permissions', 'as-php-checkup' ) );
+		}
+
+		$profile = isset( $_POST['profile'] ) ? sanitize_text_field( wp_unslash( $_POST['profile'] ) ) : 'balanced';
+
+		$check_config = AS_PHP_Checkup_Check_Config::get_instance();
+		$result = $check_config->load_profile( $profile );
+
+		if ( $result ) {
+			// Get enabled checks for this profile
+			$enabled_checks = array();
+			$checks_grouped = $check_config->get_checks_grouped();
+
+			foreach ( $checks_grouped as $category_checks ) {
+				foreach ( $category_checks as $check_key => $check_data ) {
+					if ( $check_config->is_check_enabled( $check_key ) ) {
+						$enabled_checks[] = $check_key;
+					}
+				}
+			}
+
+			wp_send_json_success( array(
+				'profile'        => $profile,
+				'enabled_checks' => $enabled_checks,
+				'message'        => __( 'Profile loaded successfully', 'as-php-checkup' ),
+			) );
+		} else {
+			wp_send_json_error( array(
+				'message' => __( 'Failed to load profile', 'as-php-checkup' ),
+			) );
+		}
+	}
+
+	/**
+	 * AJAX handler for saving check configuration
+	 *
+	 * @since 1.4.0
+	 * @return void
+	 */
+	public function ajax_save_config() {
+		// Security check
+		if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['nonce'] ) ), 'as_php_checkup_nonce' ) ) {
+			wp_die( esc_html__( 'Security check failed', 'as-php-checkup' ) );
+		}
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Insufficient permissions', 'as-php-checkup' ) );
+		}
+
+		$profile = isset( $_POST['profile'] ) ? sanitize_text_field( wp_unslash( $_POST['profile'] ) ) : 'custom';
+		$enabled_checks = isset( $_POST['enabled_checks'] ) && is_array( $_POST['enabled_checks'] )
+			? array_map( 'sanitize_text_field', wp_unslash( $_POST['enabled_checks'] ) )
+			: array();
+
+		$check_config = AS_PHP_Checkup_Check_Config::get_instance();
+
+		// Build configuration array
+		$config = array();
+		$checks_grouped = $check_config->get_checks_grouped();
+
+		foreach ( $checks_grouped as $category_checks ) {
+			foreach ( $category_checks as $check_key => $check_data ) {
+				// Critical checks are always enabled
+				if ( 'critical' === $check_data['severity'] ) {
+					$config[ $check_key ] = true;
+				} else {
+					$config[ $check_key ] = in_array( $check_key, $enabled_checks, true );
+				}
+			}
+		}
+
+		$result = $check_config->save_configuration( $config, $profile );
+
+		if ( $result ) {
+			// Clear cache to force re-check with new configuration
+			$cache_manager = AS_PHP_Checkup_Cache_Manager::get_instance();
+			$cache_manager->delete( 'check_results' );
+			$cache_manager->delete( 'check_results_lock' );
+
+			wp_send_json_success( array(
+				'profile' => $profile,
+				'message' => __( 'Configuration saved successfully', 'as-php-checkup' ),
+			) );
+		} else {
+			wp_send_json_error( array(
+				'message' => __( 'Failed to save configuration', 'as-php-checkup' ),
+			) );
+		}
 	}
 }
