@@ -60,9 +60,10 @@ class AS_PHP_Checkup_REST_Controller {
 	 * Register REST API routes
 	 *
 	 * @since 1.1.0
+	 * @version 1.4.0 - Added input validation and sanitization
 	 * @return void
 	 */
-	public function register_routes() {
+	public function register_routes(): void {
 		// Status endpoint
 		register_rest_route(
 			$this->namespace,
@@ -77,7 +78,7 @@ class AS_PHP_Checkup_REST_Controller {
 				'schema' => array( $this, 'get_status_schema' ),
 			)
 		);
-		
+
 		// System info endpoint
 		register_rest_route(
 			$this->namespace,
@@ -92,7 +93,7 @@ class AS_PHP_Checkup_REST_Controller {
 				'schema' => array( $this, 'get_system_info_schema' ),
 			)
 		);
-		
+
 		// Plugin analysis endpoint
 		register_rest_route(
 			$this->namespace,
@@ -104,16 +105,18 @@ class AS_PHP_Checkup_REST_Controller {
 					'permission_callback' => array( $this, 'check_read_permission' ),
 					'args'                => array(
 						'refresh' => array(
-							'description' => __( 'Force refresh the analysis', 'as-php-checkup' ),
-							'type'        => 'boolean',
-							'default'     => false,
+							'description'       => __( 'Force refresh the analysis', 'as-php-checkup' ),
+							'type'              => 'boolean',
+							'default'           => false,
+							'sanitize_callback' => 'rest_sanitize_boolean',
+							'validate_callback' => 'rest_validate_request_arg',
 						),
 					),
 				),
 				'schema' => array( $this, 'get_plugin_analysis_schema' ),
 			)
 		);
-		
+
 		// Refresh endpoint
 		register_rest_route(
 			$this->namespace,
@@ -127,7 +130,7 @@ class AS_PHP_Checkup_REST_Controller {
 				),
 			)
 		);
-		
+
 		// Export endpoint
 		register_rest_route(
 			$this->namespace,
@@ -139,15 +142,44 @@ class AS_PHP_Checkup_REST_Controller {
 					'permission_callback' => array( $this, 'check_read_permission' ),
 					'args'                => array(
 						'format' => array(
-							'description' => __( 'Export format', 'as-php-checkup' ),
-							'type'        => 'string',
-							'enum'        => array( 'json', 'csv' ),
-							'default'     => 'json',
+							'description'       => __( 'Export format', 'as-php-checkup' ),
+							'type'              => 'string',
+							'enum'              => array( 'json', 'csv' ),
+							'default'           => 'json',
+							'sanitize_callback' => 'sanitize_text_field',
+							'validate_callback' => array( $this, 'validate_export_format' ),
 						),
 					),
 				),
 			)
 		);
+	}
+
+	/**
+	 * Validate export format parameter
+	 *
+	 * @since 1.4.0
+	 * @param mixed           $value   Value to validate.
+	 * @param WP_REST_Request $request Request object.
+	 * @param string          $key     Parameter key.
+	 * @return bool|WP_Error True if valid, WP_Error otherwise.
+	 */
+	public function validate_export_format( $value, $request, $key ) {
+		$allowed_formats = array( 'json', 'csv' );
+
+		if ( ! in_array( $value, $allowed_formats, true ) ) {
+			return new WP_Error(
+				'invalid_format',
+				sprintf(
+					/* translators: %s: allowed formats */
+					__( 'Export format must be one of: %s', 'as-php-checkup' ),
+					implode( ', ', $allowed_formats )
+				),
+				array( 'status' => 400 )
+			);
+		}
+
+		return true;
 	}
 
 	/**
@@ -353,85 +385,133 @@ class AS_PHP_Checkup_REST_Controller {
 	}
 
 	/**
+	 * Sanitize CSV field to prevent CSV injection
+	 *
+	 * @since 1.4.0
+	 * @param mixed $field Field value to sanitize.
+	 * @return string Sanitized field value.
+	 */
+	private function sanitize_csv_field( $field ): string {
+		// Convert to string
+		$field = (string) $field;
+
+		// Check if field starts with potentially dangerous characters
+		$dangerous_chars = array( '=', '+', '-', '@', "\t", "\r" );
+
+		if ( in_array( substr( $field, 0, 1 ), $dangerous_chars, true ) ) {
+			// Prefix with single quote to neutralize formula
+			$field = "'" . $field;
+		}
+
+		// Escape quotes and wrap in quotes if contains comma, newline, or quote
+		if ( strpos( $field, ',' ) !== false ||
+		     strpos( $field, "\n" ) !== false ||
+		     strpos( $field, '"' ) !== false ) {
+			$field = '"' . str_replace( '"', '""', $field ) . '"';
+		}
+
+		return $field;
+	}
+
+	/**
 	 * Generate CSV report
 	 *
 	 * @since 1.1.0
+	 * @version 1.4.0 - Added CSV injection protection
 	 * @param array $results Check results.
 	 * @param array $system_info System information.
 	 * @param array $plugin_analysis Plugin analysis data.
 	 * @return string
 	 */
-	private function generate_csv_report( $results, $system_info, $plugin_analysis ) {
+	private function generate_csv_report( array $results, array $system_info, array $plugin_analysis ): string {
 		$csv = array();
-		
+
 		// Header
 		$csv[] = 'AS PHP Checkup Report';
 		$csv[] = 'Generated: ' . current_time( 'mysql' );
 		$csv[] = 'Version: ' . AS_PHP_CHECKUP_VERSION;
 		$csv[] = '';
-		
+
 		// PHP Settings
 		$csv[] = 'PHP SETTINGS';
 		$csv[] = 'Category,Setting,Current Value,Recommended,Minimum,Status,Required By';
-		
+
 		foreach ( $results as $category_key => $category ) {
 			foreach ( $category['items'] as $key => $item ) {
 				$csv[] = sprintf(
 					'%s,%s,%s,%s,%s,%s,%s',
-					$category['label'],
-					$item['label'],
-					$item['current'] ? $item['current'] : 'Not set',
-					$item['recommended'],
-					$item['minimum'],
-					ucfirst( $item['status'] ),
-					! empty( $item['source'] ) ? $item['source'] : 'Base recommendation'
+					$this->sanitize_csv_field( $category['label'] ),
+					$this->sanitize_csv_field( $item['label'] ),
+					$this->sanitize_csv_field( $item['current'] ? $item['current'] : 'Not set' ),
+					$this->sanitize_csv_field( $item['recommended'] ),
+					$this->sanitize_csv_field( $item['minimum'] ),
+					$this->sanitize_csv_field( ucfirst( $item['status'] ) ),
+					$this->sanitize_csv_field( ! empty( $item['source'] ) ? $item['source'] : 'Base recommendation' )
 				);
 			}
 		}
-		
+
 		// Plugin Analysis
 		if ( ! empty( $plugin_analysis ) ) {
 			$csv[] = '';
 			$csv[] = 'PLUGIN REQUIREMENTS';
 			$csv[] = 'Plugin,Requirement,Value';
-			
+
 			foreach ( $plugin_analysis as $plugin_file => $requirements ) {
 				foreach ( $requirements as $key => $value ) {
 					if ( 'name' !== $key ) {
 						$csv[] = sprintf(
 							'%s,%s,%s',
-							$requirements['name'],
-							$key,
-							$value
+							$this->sanitize_csv_field( $requirements['name'] ),
+							$this->sanitize_csv_field( $key ),
+							$this->sanitize_csv_field( is_array( $value ) ? wp_json_encode( $value ) : $value )
 						);
 					}
 				}
 			}
 		}
-		
+
 		// System Info
 		$csv[] = '';
 		$csv[] = 'SYSTEM INFORMATION';
 		$csv[] = 'Component,Property,Value';
-		
+
 		// WordPress info
-		foreach ( $system_info['wordpress'] as $key => $value ) {
-			$label = ucwords( str_replace( '_', ' ', $key ) );
-			$display_value = is_bool( $value ) ? ( $value ? 'Yes' : 'No' ) : $value;
-			$csv[] = sprintf( 'WordPress,%s,%s', $label, $display_value );
+		if ( isset( $system_info['wordpress'] ) && is_array( $system_info['wordpress'] ) ) {
+			foreach ( $system_info['wordpress'] as $key => $value ) {
+				$label = ucwords( str_replace( '_', ' ', $key ) );
+				$display_value = is_bool( $value ) ? ( $value ? 'Yes' : 'No' ) : $value;
+				$csv[] = sprintf(
+					'WordPress,%s,%s',
+					$this->sanitize_csv_field( $label ),
+					$this->sanitize_csv_field( $display_value )
+				);
+			}
 		}
-		
+
 		// Server info
-		foreach ( $system_info['server'] as $key => $value ) {
-			$label = ucwords( str_replace( '_', ' ', $key ) );
-			$csv[] = sprintf( 'Server,%s,%s', $label, $value );
+		if ( isset( $system_info['server'] ) && is_array( $system_info['server'] ) ) {
+			foreach ( $system_info['server'] as $key => $value ) {
+				$label = ucwords( str_replace( '_', ' ', $key ) );
+				$csv[] = sprintf(
+					'Server,%s,%s',
+					$this->sanitize_csv_field( $label ),
+					$this->sanitize_csv_field( $value )
+				);
+			}
 		}
-		
+
 		// PHP Extensions
-		foreach ( $system_info['php_extensions'] as $extension => $loaded ) {
-			$csv[] = sprintf( 'PHP Extension,%s,%s', strtoupper( $extension ), $loaded ? 'Loaded' : 'Not Loaded' );
+		if ( isset( $system_info['php_extensions'] ) && is_array( $system_info['php_extensions'] ) ) {
+			foreach ( $system_info['php_extensions'] as $extension => $loaded ) {
+				$csv[] = sprintf(
+					'PHP Extension,%s,%s',
+					$this->sanitize_csv_field( strtoupper( $extension ) ),
+					$this->sanitize_csv_field( $loaded ? 'Loaded' : 'Not Loaded' )
+				);
+			}
 		}
-		
+
 		return implode( "\n", $csv );
 	}
 

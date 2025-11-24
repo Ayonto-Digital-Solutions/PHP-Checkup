@@ -439,49 +439,92 @@ class AS_PHP_Checkup {
 	 * Convert memory string to bytes
 	 *
 	 * @since 1.0.0
-	 * @param string $value Memory value.
+	 * @version 1.4.0 - Added bounds checking and error handling
+	 * @param string|int $value Memory value.
 	 * @return int
 	 */
-	private function convert_to_bytes( $value ) {
+	private function convert_to_bytes( $value ): int {
+		// Handle numeric values
 		if ( is_numeric( $value ) ) {
-			return intval( $value );
+			return max( 0, intval( $value ) );
 		}
-		
+
+		// Handle empty or invalid values
+		if ( empty( $value ) || ! is_string( $value ) ) {
+			return 0;
+		}
+
 		$value = trim( $value );
-		$last = strtolower( $value[ strlen( $value ) - 1 ] );
-		$value = intval( $value );
-		
+		$length = strlen( $value );
+
+		// Check if string has at least one character
+		if ( $length === 0 ) {
+			return 0;
+		}
+
+		// Get last character (unit indicator)
+		$last = strtolower( $value[ $length - 1 ] );
+
+		// Extract numeric value
+		$numeric_value = intval( $value );
+
+		// Prevent negative values
+		if ( $numeric_value < 0 ) {
+			return 0;
+		}
+
+		// Apply multiplier based on unit
 		switch ( $last ) {
 			case 'g':
-				$value *= 1024 * 1024 * 1024;
+				$numeric_value *= 1024 * 1024 * 1024;
 				break;
 			case 'm':
-				$value *= 1024 * 1024;
+				$numeric_value *= 1024 * 1024;
 				break;
 			case 'k':
-				$value *= 1024;
+				$numeric_value *= 1024;
 				break;
 		}
-		
-		return $value;
+
+		return $numeric_value;
 	}
 
 	/**
 	 * Get all check results
 	 *
 	 * @since 1.0.0
-	 * @version 1.3.1 - Added status counts
+	 * @version 1.4.0 - Added cache stampede protection with locks
 	 * @return array
 	 */
-	public function get_check_results() {
-		// Try to get from cache first
+	public function get_check_results(): array {
 		$cache_manager = AS_PHP_Checkup_Cache_Manager::get_instance();
+
+		// Try to get from cache first
 		$cached_results = $cache_manager->get( 'check_results' );
-		
+
 		if ( false !== $cached_results ) {
 			return $cached_results;
 		}
-		
+
+		// Use lock to prevent cache stampede
+		$lock_key = 'check_results_lock';
+		$lock_obtained = $cache_manager->set( $lock_key, time(), 30 ); // 30 second lock
+
+		// If lock was not obtained, wait briefly and return cached or default
+		if ( false === $lock_obtained ) {
+			// Another process is computing results, wait a moment
+			usleep( 100000 ); // 100ms
+
+			// Try cache again
+			$cached_results = $cache_manager->get( 'check_results' );
+			if ( false !== $cached_results ) {
+				return $cached_results;
+			}
+
+			// If still no cache, return empty array to prevent blocking
+			return array();
+		}
+
 		// Reload plugin requirements to get latest
 		$this->load_plugin_requirements();
 		

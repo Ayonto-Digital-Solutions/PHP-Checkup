@@ -11,7 +11,7 @@
  * Plugin Name:       AS PHP Checkup
  * Plugin URI:        https://akkusys.de
  * Description:       Intelligent PHP configuration checker with automatic solution provider, one-click fixes, and configuration generators
- * Version:           1.3.3
+ * Version:           1.4.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Marc Mirschel
@@ -28,7 +28,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants
-define( 'AS_PHP_CHECKUP_VERSION', '1.3.3' );
+define( 'AS_PHP_CHECKUP_VERSION', '1.4.0' );
 define( 'AS_PHP_CHECKUP_PLUGIN_FILE', __FILE__ );
 define( 'AS_PHP_CHECKUP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AS_PHP_CHECKUP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -38,6 +38,25 @@ define( 'AS_PHP_CHECKUP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 if ( ! defined( 'AS_PHP_CHECKUP_DEBUG' ) ) {
 	define( 'AS_PHP_CHECKUP_DEBUG', defined( 'WP_DEBUG' ) && WP_DEBUG );
 }
+
+// Define cache duration constants (in seconds)
+define( 'AS_PHP_CHECKUP_CACHE_CHECK_RESULTS', 5 * MINUTE_IN_SECONDS ); // 5 minutes
+define( 'AS_PHP_CHECKUP_CACHE_SYSTEM_INFO', 30 * MINUTE_IN_SECONDS ); // 30 minutes
+define( 'AS_PHP_CHECKUP_CACHE_PLUGIN_ANALYSIS', DAY_IN_SECONDS ); // 24 hours
+define( 'AS_PHP_CHECKUP_CACHE_PLUGIN_REQUIREMENTS', 12 * HOUR_IN_SECONDS ); // 12 hours
+define( 'AS_PHP_CHECKUP_CACHE_HOSTING_DETECTION', WEEK_IN_SECONDS ); // 1 week
+
+// Define file size limits (in bytes)
+define( 'AS_PHP_CHECKUP_MAX_README_SIZE', 512 * 1024 ); // 512 KB
+define( 'AS_PHP_CHECKUP_MAX_PLUGIN_FILE_SIZE', 1024 * 1024 ); // 1 MB
+define( 'AS_PHP_CHECKUP_MAX_COMPOSER_SIZE', 100 * 1024 ); // 100 KB
+
+// Define log limits
+define( 'AS_PHP_CHECKUP_MAX_CACHE_LOG_ENTRIES', 100 );
+define( 'AS_PHP_CHECKUP_MAX_AUDIT_LOG_ENTRIES', 1000 );
+
+// Define backup retention
+define( 'AS_PHP_CHECKUP_BACKUP_RETENTION_DAYS', 7 );
 
 /**
  * Autoloader for plugin classes

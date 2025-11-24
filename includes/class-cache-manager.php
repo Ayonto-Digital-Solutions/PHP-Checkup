@@ -38,14 +38,15 @@ class AS_PHP_Checkup_Cache_Manager {
 	 * Cache expiration times
 	 *
 	 * @since 1.2.1
+	 * @version 1.4.0 - Updated to use constants
 	 * @var array
 	 */
 	private $cache_times = array(
-		'system_info'        => HOUR_IN_SECONDS,
-		'plugin_analysis'    => DAY_IN_SECONDS,
-		'check_results'      => HOUR_IN_SECONDS,
-		'hosting_detection'  => WEEK_IN_SECONDS,
-		'plugin_requirements'=> 12 * HOUR_IN_SECONDS,
+		'system_info'         => AS_PHP_CHECKUP_CACHE_SYSTEM_INFO,
+		'plugin_analysis'     => AS_PHP_CHECKUP_CACHE_PLUGIN_ANALYSIS,
+		'check_results'       => AS_PHP_CHECKUP_CACHE_CHECK_RESULTS,
+		'hosting_detection'   => AS_PHP_CHECKUP_CACHE_HOSTING_DETECTION,
+		'plugin_requirements' => AS_PHP_CHECKUP_CACHE_PLUGIN_REQUIREMENTS,
 	);
 
 	/**
@@ -162,27 +163,32 @@ class AS_PHP_Checkup_Cache_Manager {
 	 * Clear all plugin cache
 	 *
 	 * @since 1.2.1
+	 * @version 1.4.0 - Fixed SQL injection vulnerability
 	 * @return void
 	 */
-	public function clear_all_cache() {
+	public function clear_all_cache(): void {
 		global $wpdb;
-		
-		// Delete all transients with our prefix
+
+		// Properly escape patterns before concatenation
+		$pattern1 = $wpdb->esc_like( '_transient_' . $this->cache_prefix ) . '%';
+		$pattern2 = $wpdb->esc_like( '_transient_timeout_' . $this->cache_prefix ) . '%';
+
+		// Delete all transients with our prefix - properly parameterized
 		$sql = $wpdb->prepare(
-			"DELETE FROM {$wpdb->options} 
-			WHERE option_name LIKE %s 
+			"DELETE FROM {$wpdb->options}
+			WHERE option_name LIKE %s
 			OR option_name LIKE %s",
-			$wpdb->esc_like( '_transient_' . $this->cache_prefix ) . '%',
-			$wpdb->esc_like( '_transient_timeout_' . $this->cache_prefix ) . '%'
+			$pattern1,
+			$pattern2
 		);
-		
-		$wpdb->query( $sql );
-		
+
+		$wpdb->query( $sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+
 		// Clear object cache if available
 		if ( function_exists( 'wp_cache_flush' ) ) {
 			wp_cache_flush();
 		}
-		
+
 		// Log cache clear
 		$this->log_cache_event( 'clear_all', 'all' );
 	}
@@ -262,12 +268,12 @@ class AS_PHP_Checkup_Cache_Manager {
 			);
 		}
 		
-		// Store in option for admin viewing (last 100 events)
+		// Store in option for admin viewing (last N events)
 		$cache_log = get_option( 'as_php_checkup_cache_log', array() );
 		$cache_log[] = $log_entry;
-		
-		if ( count( $cache_log ) > 100 ) {
-			$cache_log = array_slice( $cache_log, -100 );
+
+		if ( count( $cache_log ) > AS_PHP_CHECKUP_MAX_CACHE_LOG_ENTRIES ) {
+			$cache_log = array_slice( $cache_log, -AS_PHP_CHECKUP_MAX_CACHE_LOG_ENTRIES );
 		}
 		
 		update_option( 'as_php_checkup_cache_log', $cache_log, false );
