@@ -365,6 +365,16 @@ class AS_PHP_Checkup_Check_Config {
 	}
 
 	/**
+	 * Get available configuration profiles (alias for get_profiles)
+	 *
+	 * @since 1.4.0
+	 * @return array
+	 */
+	public function get_available_profiles(): array {
+		return $this->get_profiles();
+	}
+
+	/**
 	 * Get check severity
 	 *
 	 * @since 1.4.0
